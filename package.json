@@ -1,0 +1,14 @@
+{
+  "name": "divortio-proxio",
+  "version": "1.0.0",
+  "description": "A comprehensive, stealthy Cloudflare Worker proxy designed for high-fidelity testing and secure browsing.",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.32.00",
+    "@cloudflare/workers-types": "^4.20250807.0"
+  }
+}

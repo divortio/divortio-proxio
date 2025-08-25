@@ -1,0 +1,51 @@
+# =====================================================================================
+# Wrangler Configuration for Divortio Worker Proxy
+# Version: 8.0.0
+# =====================================================================================
+name = "divortio-proxio"
+main = "src/worker.mjs"
+compatibility_date = "2025-08-22"
+# account_id = "your_account_id_here"
+
+[[routes]]
+pattern = "*.proxy.example.com"
+custom_domain = true
+[[routes]]
+pattern = "proxy.example.com"
+custom_domain = true
+
+[vars]
+# --- Core Proxy Configuration ---
+ROOT_DOMAIN = "proxy.example.com"
+
+# -------------------------------------------------------------------------------------
+# |                           Authentication Configuration                            |
+# -------------------------------------------------------------------------------------
+USER_AUTH_ENABLED = true
+AGENT_AUTH_ENABLED = true
+
+# --- Auth API Routes ---
+LOGIN_API_PATH = "/api/auth/login"
+LOGOUT_API_PATH = "/api/auth/logout"
+
+# --- JWT & Session Configuration ---
+JWT_SECRET = "your-super-secret-key-that-is-at-least-32-characters-long"
+SESSION_TIMEOUT = 3600 # 1 hour
+
+# --- JWT Registered Claims (NEW) ---
+# The "iss" (Issuer) claim for the JWT. Defaults to the ROOT_DOMAIN.
+JWT_ISSUER = "DivortioProxio"
+# The "aud" (Audience) claim for the JWT. Defaults to the ROOT_DOMAIN.
+JWT_AUDIENCE = "DivortioProxioUsers"
+
+
+# --- Auth Identifiers ---
+AUTH_COOKIE_NAME = "__ss_jwt"
+AGENT_HEADER_NAME = "X-PROXIO-API"
+
+# --- Browser Profile & Caching ---
+EMULATION_STRATEGY = "passthrough"
+PROFILE_COOKIE_NAME = "_wkrPrx_brwsrPrfl"
+CACHE_ENABLED = true
+CACHE_TTL = 180
+CACHEABLE_TYPES = '["image/", "javascript", "css", "font/"]'
