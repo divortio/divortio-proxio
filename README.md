@@ -1,6 +1,5 @@
-# Divortio Worker Proxy
-
-![Proxy Banner](https://user-images.githubusercontent.com/810438/153383033-52474419-f5d6-4128-8692-126211504561.png)
+# Proxio - by Divortio
+---
 
 A comprehensive, stealthy, and high-performance web proxy built on Cloudflare Workers. This project is designed for two
 primary use cases:
@@ -152,7 +151,7 @@ boilerplate.
 ```javascript
 import { createAuthHandler } from './auth/router.mjs';
 import { myAppLogic } from './app.mjs'; // This is your main application logic
-import { createConfig } from './config.mjs';
+import { createConfig } from './index.mjs';
 
 /**
  * The final, complete fetch handler for the worker. It is constructed once by
@@ -202,7 +201,7 @@ handler and the security middleware separately, allowing you to build a custom r
 import { handleAuthRoutes } from './auth/router.mjs';
 import { createAuthMiddleware } from './auth/core.mjs';
 import { myAppLogic } from './app.mjs';
-import { createConfig } from './config.mjs';
+import { createConfig } from './index.mjs';
 
 export default {
   /**
@@ -260,7 +259,7 @@ internal validation functions, allowing you to manually protect specific routes.
 // Prerequisite: Modify `src/auth/core.mjs` to export the internal `_jwt.validateJwt` function.
 // For example: export const { validateJwt } = _jwt;
 import { validateJwt } from './auth/core.mjs';
-import { createConfig } from './config.mjs';
+import { createConfig } from './index.mjs';
 
 export default {
   /**

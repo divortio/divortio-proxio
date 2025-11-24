@@ -15,7 +15,6 @@ pattern = "proxy.example.com"
 custom_domain = true
 
 [vars]
-# --- Core Proxy Configuration ---
 ROOT_DOMAIN = "proxy.example.com"
 
 # -------------------------------------------------------------------------------------
