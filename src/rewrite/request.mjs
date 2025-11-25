@@ -4,7 +4,7 @@
  * @version 2.0.0
  */
 
-import { URLParser } from '../handle/handlers/url.mjs';
+import { getTargetURL } from '../handle/handlers/url.mjs';
 
 /**
  * Creates the clean Request object for the upstream fetch.
@@ -61,7 +61,7 @@ function fixIdentityHeaders(headers, config) {
             const u = new URL(val);
             // If coming from our proxy, map it to the target
             if (u.hostname.endsWith(config.rootDomain)) {
-                const realTarget = URLParser.getTarget(new Request(val), config);
+                const realTarget = getTargetURL(new Request(val), config);
                 if (realTarget) headers.set(name, realTarget.href);
             }
         } catch (e) {

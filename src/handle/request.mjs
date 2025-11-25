@@ -67,4 +67,4 @@ export async function handleRequest(request, env, ctx) {
     }
 
     return finalResponse;
-};
+}

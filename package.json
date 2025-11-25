@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "description": "A comprehensive, stealthy Cloudflare Worker proxy designed for high-fidelity testing and secure browsing.",
   "private": true,
+  "type": "module",
+  "main": "src/index.mjs",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
-    "wrangler": "^4.32.00",
-    "@cloudflare/workers-types": "^4.20250807.0"
+    "wrangler": "^4.47.0"
   }
 }

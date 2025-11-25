@@ -1,50 +1,74 @@
 # =====================================================================================
 # Wrangler Configuration for Divortio Worker Proxy
-# Version: 8.0.0
+# Version: 10.0.0 (Optimized & Cleaned)
 # =====================================================================================
 name = "divortio-proxio"
 main = "src/worker.mjs"
-compatibility_date = "2025-08-22"
-# account_id = "your_account_id_here"
 
+# --- Optimization & Compatibility ---
+# Use the modern date you requested.
+compatibility_date = "2025-10-29"
+
+# Minify the output script to reduce bundle size and improve cold starts.
+minify = true
+
+# Disable Node.js compatibility mode.
+# This proxy uses standard Web APIs (fetch, Request, Response), so we don't need the Node.js polyfills.
+# Disabling this reduces the bundle size significantly.
+node_compat = false
+
+# --- Routing ---
+# Disable the legacy *.workers.dev subdomain for production.
+# This ensures traffic only comes through your custom domain routes.
+workers_dev = false
+
+# The proxy listens on the root domain and all subdomains.
 [[routes]]
 pattern = "*.proxy.example.com"
 custom_domain = true
+
 [[routes]]
 pattern = "proxy.example.com"
 custom_domain = true
 
+# --- Static Assets ---
+# Configures the binding to serve files from the /public directory.
+# run_worker_first = true ensures our worker code executes before serving assets,
+# allowing us to inject headers or intercept specific asset paths.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+# --- Performance & Observability ---
+# Smart Placement automatically moves the worker execution to a location
+# that minimizes latency to backend services (if applicable), or keeps it at the edge.
+[placement]
+mode = "smart"
+
+# Enable full tracing for detailed performance analysis in Cloudflare Dashboard.
+[observability]
+enabled = true
+head_sampling_rate = 1.0
+
 [vars]
+# --- Core Proxy Configuration ---
 ROOT_DOMAIN = "proxy.example.com"
 
-# -------------------------------------------------------------------------------------
-# |                           Authentication Configuration                            |
-# -------------------------------------------------------------------------------------
-USER_AUTH_ENABLED = true
-AGENT_AUTH_ENABLED = true
-
-# --- Auth API Routes ---
-LOGIN_API_PATH = "/api/auth/login"
-LOGOUT_API_PATH = "/api/auth/logout"
-
-# --- JWT & Session Configuration ---
-JWT_SECRET = "your-super-secret-key-that-is-at-least-32-characters-long"
-SESSION_TIMEOUT = 3600 # 1 hour
-
-# --- JWT Registered Claims (NEW) ---
-# The "iss" (Issuer) claim for the JWT. Defaults to the ROOT_DOMAIN.
-JWT_ISSUER = "DivortioProxio"
-# The "aud" (Audience) claim for the JWT. Defaults to the ROOT_DOMAIN.
-JWT_AUDIENCE = "DivortioProxioUsers"
-
-
-# --- Auth Identifiers ---
-AUTH_COOKIE_NAME = "__ss_jwt"
-AGENT_HEADER_NAME = "X-PROXIO-API"
-
-# --- Browser Profile & Caching ---
-EMULATION_STRATEGY = "passthrough"
-PROFILE_COOKIE_NAME = "_wkrPrx_brwsrPrfl"
+# --- Caching Configuration ---
+# Controls the Edge Cache behavior.
 CACHE_ENABLED = true
-CACHE_TTL = 180
-CACHEABLE_TYPES = '["image/", "javascript", "css", "font/"]'
+# Default TTL in seconds (1 hour)
+CACHE_TTL = 3600
+# JSON array of content types we are allowed to cache.
+CACHEABLE_TYPES = '["image/", "font/", "text/css", "application/javascript", "application/x-javascript"]'
+
+# --- Feature Flags ---
+# Controls internal behavior.
+# stealthMode: Enforces rigorous anti-fingerprinting measures.
+# serviceWorker: Enables the injection of the Service Worker for network interception.
+FEATURES_STEALTH_MODE = true
+FEATURES_SERVICE_WORKER = true
+
+# Note: Authentication is now handled by Cloudflare Access (Zero Trust).
+# Ensure you have an Access Policy attached to your custom domain.

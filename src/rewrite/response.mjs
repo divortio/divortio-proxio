@@ -1,9 +1,9 @@
 /**
  * @file Response Processing Logic
- * @description Handles content rewriting based on MIME type.
+ * @description Orchestrates header sanitization and content type delegation.
+ * @version 5.0.0
  */
 
-import { rewriteCSS, rewriteXML, rewriteUrlsInJson } from './rewriters/parsers.mjs';
 import {
     rewriteCSP,
     rewriteCORS,
@@ -11,12 +11,21 @@ import {
     rewriteLinkHeader,
     rewriteLocationHeader,
     sanitizeHeaders
-} from './rewriters/headers.mjs';
-import { getHtmlRewriter } from './rewriters/html.mjs';
-import { getStealthInterceptorScript } from '../templates/interceptor.mjs';
+} from './rewriters/headers/index.mjs';
 
+import {handleJavascript, handleHtml, handleCss, handleJson, handleXml} from './handlers/index.mjs'
+
+/**
+ * Main entry point for rewriting a response.
+ * @param {Response} originResponse
+ * @param {URL} targetURL
+ * @param {string} rootDomain
+ * @param {object} config
+ * @param {string|null} setCookieHeader
+ * @returns {Promise<Response>}
+ */
 export async function rewriteResponse(originResponse, targetURL, rootDomain, config, setCookieHeader) {
-    // 1. Status Check
+    // 1. Status Check: Passthrough for 304/204
     if (originResponse.status === 304 || originResponse.status === 204 || (originResponse.status >= 300 && originResponse.status < 400)) {
         const safeHeaders = new Headers(originResponse.headers);
         sanitizeHeaders(safeHeaders);
@@ -28,13 +37,13 @@ export async function rewriteResponse(originResponse, targetURL, rootDomain, con
         });
     }
 
-    // 2. Header Prep
+    // 2. Prepare Response Headers (Clone & Sanitize)
     const headers = new Headers(originResponse.headers);
     sanitizeHeaders(headers);
-    const contentType = headers.get('Content-Type') || '';
 
-    // 3. Header Rewriting
+    // 3. Rewrite Security & Link Headers
     if (setCookieHeader) headers.append('Set-Cookie', setCookieHeader);
+
     if (headers.has('Set-Cookie')) {
         const cookies = headers.getAll('Set-Cookie');
         headers.delete('Set-Cookie');
@@ -48,59 +57,52 @@ export async function rewriteResponse(originResponse, targetURL, rootDomain, con
 
     rewriteLocationHeader(headers, targetURL, rootDomain);
     rewriteCORS(headers, targetURL, rootDomain);
+
     if (headers.has('Content-Security-Policy')) {
         headers.set('Content-Security-Policy', rewriteCSP(headers.get('Content-Security-Policy')));
     }
 
-    // 4. Content Rewriting
+    // 4. Create Response Base (Used for handlers)
+    const responseBase = new Response(originResponse.body, {
+        status: originResponse.status,
+        statusText: originResponse.statusText,
+        headers: headers
+    });
 
-    // HTML
+    // 5. Delegate to Content Type Handlers
+    const contentType = headers.get('Content-Type') || '';
+
     if (contentType.includes('text/html')) {
-        return getHtmlRewriter(targetURL, rootDomain)
-            .transform(new Response(originResponse.body, { status: originResponse.status, statusText: originResponse.statusText, headers }));
+        return handleHtml(responseBase, targetURL, rootDomain);
     }
 
-    // JavaScript
     if (contentType.includes('javascript') || contentType.includes('application/x-javascript')) {
-        let js = await originResponse.text();
-        js = js.replace(/\/\/# sourceMappingURL=.*/g, '');
-        js = js.replace(/import\s*\(/g, 'import(self.__d_rw(');
-        // Note: Interceptor is now injected via HTML <script src>, so we don't prepend it here.
-        headers.set('Content-Length', new TextEncoder().encode(js).length);
-        return new Response(js, { status: originResponse.status, headers });
+        return handleJavascript(responseBase, rootDomain);
     }
 
-    // CSS
     if (contentType.includes('text/css')) {
-        let css = await originResponse.text();
-        const rewrittenCss = rewriteCSS(css, targetURL, rootDomain);
-        headers.set('Content-Length', new TextEncoder().encode(rewrittenCss).length);
-        return new Response(rewrittenCss, { status: originResponse.status, headers });
+        return handleCss(responseBase, targetURL, rootDomain);
     }
 
-    // JSON
     if (contentType.includes('application/json') || contentType.includes('application/manifest+json')) {
-        try {
-            const json = await originResponse.json();
-            rewriteUrlsInJson(json, targetURL, rootDomain);
-            return new Response(JSON.stringify(json), { status: originResponse.status, headers });
-        } catch (e) {
-            return new Response(originResponse.body, { status: originResponse.status, headers });
-        }
+        return handleJson(responseBase, targetURL, rootDomain);
     }
 
-    // XML
     if (contentType.includes('xml')) {
-        const xml = await originResponse.text();
-        const rewrittenXml = rewriteXML(xml, targetURL, rootDomain);
-        return new Response(rewrittenXml, { status: originResponse.status, headers });
+        return handleXml(responseBase, targetURL, rootDomain);
     }
 
-    // PDF
+    // Special Case: PDF (Force Download)
     if (contentType.includes('application/pdf')) {
         headers.set('Content-Disposition', 'attachment');
+        // Return new response to apply the header change
+        return new Response(originResponse.body, {
+            status: originResponse.status,
+            statusText: originResponse.statusText,
+            headers: headers
+        });
     }
 
-    // Passthrough
-    return new Response(originResponse.body, { status: originResponse.status, statusText: originResponse.statusText, headers });
+    // 6. Fallback Passthrough
+    return responseBase;
 }
