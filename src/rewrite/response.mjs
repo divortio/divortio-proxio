@@ -1,7 +1,7 @@
 /**
  * @file Response Processing Logic
  * @description Orchestrates header sanitization and content type delegation.
- * @version 5.0.0
+ * @version 6.0.0 (Updated for Mod Config)
  */
 
 import {
@@ -73,7 +73,8 @@ export async function rewriteResponse(originResponse, targetURL, rootDomain, con
     const contentType = headers.get('Content-Type') || '';
 
     if (contentType.includes('text/html')) {
-        return handleHtml(responseBase, targetURL, rootDomain);
+        // UPDATED: Now passing 'config' to support Mods
+        return handleHtml(responseBase, targetURL, rootDomain, config);
     }
 
     if (contentType.includes('javascript') || contentType.includes('application/x-javascript')) {

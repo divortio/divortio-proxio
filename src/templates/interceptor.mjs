@@ -1,21 +1,22 @@
 /**
  * @file Client-side proxy interceptor script.
- * @version 25.0.0
+ * @version 28.0.0 (Final Hardening)
  * @description
  * The "Stealth" Edition.
  * Includes: Native Code Spoofing, Performance Masking, SVG baseVal traps,
- * Document Referrer spoofing, and comprehensive Network/DOM traps.
+ * Document Referrer spoofing, Network/DOM traps, Blob Bootstrapper,
+ * SW Injector, CSS Typed OM traps, and Web Animations API traps.
  */
 
 export function getStealthInterceptorScript(rootDomain) {
     return `
       (function() {
         // 1. Environment Safety Check
-        if (self.location.protocol === 'blob:' || self.location.protocol === 'data:') return;
+        // UPDATED: We MUST allow 'data:' protocol because we use Blob Workers 
+        // to inject this very interceptor into new threads.
+        if (self.location.protocol === 'blob:') return; // Blobs are handled via bootstrapper context
 
         // 2. Configuration
-        // We hardcode this into the script to ensure it's available immediately,
-        // regardless of external config script injection timing.
         const PROXY_ROOT_DOMAIN = '${rootDomain}';
         
         // --- CORE UTILITIES ---
@@ -25,7 +26,11 @@ export function getStealthInterceptorScript(rootDomain) {
             // Ignore non-network schemas
             if (url.startsWith('data:') || url.startsWith('#') || url.startsWith('javascript:') || url.startsWith('blob:')) return url;
             try {
-                const u = new URL(url, self.location.href);
+                // UPDATED: Handle Blob context where location.href is blob:...
+                // If we are in a blob, relative URLs should be resolved against the origin, not the blob URI.
+                const base = self.location.protocol === 'blob:' ? self.location.origin : self.location.href;
+                const u = new URL(url, base);
+                
                 // If it's not already on our proxy, rewrite it
                 if (!u.hostname.endsWith(PROXY_ROOT_DOMAIN)) {
                     return 'https://' + u.hostname + '.' + PROXY_ROOT_DOMAIN + u.pathname + u.search;
@@ -77,15 +82,12 @@ export function getStealthInterceptorScript(rootDomain) {
 
 
         // --- 1. NATIVE CODE SPOOFING (Anti-Tamper) ---
-        // Many scripts check if API functions have been monkey-patched by calling .toString().
-        // We must intercept this and lie, returning "function name() { [native code] }".
         
         const nativeToString = Function.prototype.toString;
         const trappedFns = new WeakSet();
         
         const makeNative = (fn, original) => {
             trappedFns.add(fn);
-            // Store the name if possible for realism
             if (original) {
                 try { Object.defineProperty(fn, 'name', { value: original.name }); } catch(e){}
             }
@@ -103,14 +105,12 @@ export function getStealthInterceptorScript(rootDomain) {
         const safeWrap = (obj, method, wrapper) => {
             if (!obj || !obj[method]) return;
             const original = obj[method];
-            // Wrap the function, then mark the wrapper as "Native"
             obj[method] = makeNative(wrapper(original), original);
         };
 
 
         // --- 2. NETWORK TRAPS ---
         
-        // Fetch
         if (self.fetch) {
             safeWrap(self, 'fetch', (original) => function(input, init) {
                 if (typeof input === 'string') input = rewriteURL(input);
@@ -123,33 +123,27 @@ export function getStealthInterceptorScript(rootDomain) {
             });
         }
 
-        // XMLHttpRequest
         if (self.XMLHttpRequest) {
             safeWrap(XMLHttpRequest.prototype, 'open', (original) => function(method, url, ...args) {
                 return original.call(this, method, rewriteURL(url), ...args);
             });
         }
 
-        // SendBeacon
         if (navigator.sendBeacon) {
             safeWrap(navigator, 'sendBeacon', (original) => function(url, data) {
                 return original.call(this, rewriteURL(url), data);
             });
         }
 
-        // WebSocket
         if (self.WebSocket) {
             const OriginalWebSocket = self.WebSocket;
             self.WebSocket = new Proxy(OriginalWebSocket, {
                 construct(target, args) {
-                    // args[0] is url
                     return new target(rewriteURL(args[0]), args[1]);
                 }
             });
-            // Proxy can't use makeNative directly on constructor easily, but logic is hidden
         }
 
-        // EventSource
         if (self.EventSource) {
             const OriginalEventSource = self.EventSource;
             self.EventSource = new Proxy(OriginalEventSource, {
@@ -159,7 +153,6 @@ export function getStealthInterceptorScript(rootDomain) {
             });
         }
         
-        // Request
         if (self.Request) {
             const OriginalRequest = self.Request;
             self.Request = new Proxy(OriginalRequest, {
@@ -171,10 +164,44 @@ export function getStealthInterceptorScript(rootDomain) {
             });
         }
 
+        // --- 2.1 WORKER TRAPS (Blob Bootstrapper) ---
+        // Solves GAP #1: Workers bypassing the interceptor
+        if (self.Worker) {
+            const OriginalWorker = self.Worker;
+            
+            const createWorkerBlob = (scriptURL) => {
+                const proxyScriptURL = rewriteURL(scriptURL);
+                const interceptorPath = '/__divortio_interceptor.js'; 
+                const interceptorURL = self.location.origin + interceptorPath;
+                
+                const content = \`
+                    /* Divortio Worker Bootstrapper */
+                    try {
+                        importScripts('\${interceptorURL}');
+                    } catch(e) { console.error('Failed to inject proxy interceptor into worker', e); }
+                    importScripts('\${proxyScriptURL}');
+                \`;
+                return URL.createObjectURL(new Blob([content], { type: 'application/javascript' }));
+            };
 
-        // --- 3. DOM SETTERS (The "Image Trap") ---
+            self.Worker = new Proxy(OriginalWorker, {
+                construct(target, args) {
+                    const [url] = args;
+                    if (typeof url === 'string') {
+                        try {
+                            args[0] = createWorkerBlob(url);
+                        } catch(e) {
+                            args[0] = rewriteURL(url);
+                        }
+                    }
+                    return new target(...args);
+                }
+            });
+        }
+
+
+        // --- 3. DOM SETTERS ---
         
-        // setAttribute Trap
         if (self.Element && Element.prototype) {
             const oSet = Element.prototype.setAttribute;
             const oSetNS = Element.prototype.setAttributeNS;
@@ -200,28 +227,18 @@ export function getStealthInterceptorScript(rootDomain) {
             }, oSetNS);
         }
 
-        // Property Trap Helper (Getter Spoofing)
-        // Rewrites the setter, but makes the getter return the ORIGINAL value (The Illusion)
         const trapProp = (proto, prop, processor = rewriteURL) => {
             if (!proto) return;
             const desc = Object.getOwnPropertyDescriptor(proto, prop);
             if (desc && desc.set && desc.get) {
                 Object.defineProperty(proto, prop, {
-                    get() { 
-                        // Spoofing: Return the un-rewritten URL
-                        return unrewriteURL(desc.get.call(this)); 
-                    },
-                    set(val) { 
-                        // Rewriting: Set the proxy URL
-                        return desc.set.call(this, processor(val)); 
-                    },
-                    enumerable: desc.enumerable, 
-                    configurable: desc.configurable
+                    get() { return unrewriteURL(desc.get.call(this)); },
+                    set(val) { return desc.set.call(this, processor(val)); },
+                    enumerable: desc.enumerable, configurable: desc.configurable
                 });
             }
         };
 
-        // Apply to all relevant DOM interfaces
         const elements = [
             [self.HTMLImageElement, 'src'], [self.HTMLScriptElement, 'src'], [self.HTMLLinkElement, 'href'],
             [self.HTMLAnchorElement, 'href'], [self.HTMLAnchorElement, 'ping'], [self.HTMLMediaElement, 'src'],
@@ -234,12 +251,10 @@ export function getStealthInterceptorScript(rootDomain) {
         ];
         elements.forEach(([proto, prop]) => trapProp(proto?.prototype, prop));
 
-        // Special Parsers
         trapProp(self.HTMLIFrameElement?.prototype, 'srcdoc', rewriteHTML);
         trapProp(self.HTMLImageElement?.prototype, 'srcset', rewriteSrcset);
         trapProp(self.HTMLSourceElement?.prototype, 'srcset', rewriteSrcset);
         
-        // SVG baseVal (Complex Object) Trap
         if (self.SVGAnimatedString && SVGAnimatedString.prototype) {
             const baseValDesc = Object.getOwnPropertyDescriptor(SVGAnimatedString.prototype, 'baseVal');
             if (baseValDesc && baseValDesc.set) {
@@ -255,7 +270,6 @@ export function getStealthInterceptorScript(rootDomain) {
         // --- 4. CSS TRAPS ---
         
         if (self.CSSStyleDeclaration) {
-            // setProperty
             safeWrap(CSSStyleDeclaration.prototype, 'setProperty', (o) => function(prop, value, priority) {
                 if (value && (prop.includes('image') || prop.includes('background') || value.includes('url('))) {
                     value = rewriteCSS(value);
@@ -263,7 +277,6 @@ export function getStealthInterceptorScript(rootDomain) {
                 return o.call(this, prop, value, priority);
             });
 
-            // Direct property assignment (style.backgroundImage = ...)
             const trapStyleProp = (prop) => {
                 const desc = Object.getOwnPropertyDescriptor(CSSStyleDeclaration.prototype, prop);
                 if (desc && desc.set) {
@@ -276,6 +289,60 @@ export function getStealthInterceptorScript(rootDomain) {
             };
             ['backgroundImage', 'listStyleImage', 'borderImage', 'borderImageSource', 'content', 'cursor', 'maskImage', 'filter', 'clipPath', 'offsetPath', 'shapeOutside'].forEach(trapStyleProp);
             trapStyleProp('cssText');
+        }
+
+        // GAP #3: CSS Typed OM Trap
+        if (self.Element && Element.prototype && 'attributeStyleMap' in Element.prototype) {
+            const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'attributeStyleMap');
+            if (desc && desc.get) {
+                 Object.defineProperty(Element.prototype, 'attributeStyleMap', {
+                    get() {
+                        const map = desc.get.call(this);
+                        if (!map.__d_trapped) {
+                            const originalSet = map.set;
+                            map.set = function(property, ...values) {
+                                const newValues = values.map(v => {
+                                    if (typeof v === 'string' && v.includes('url(')) return rewriteCSS(v);
+                                    return v;
+                                });
+                                return originalSet.apply(this, [property, ...newValues]);
+                            };
+                            map.__d_trapped = true;
+                        }
+                        return map;
+                    },
+                    enumerable: desc.enumerable, configurable: desc.configurable
+                 });
+            }
+        }
+
+        // GAP #4: Web Animations API Trap
+        if (self.Element && Element.prototype.animate) {
+            safeWrap(Element.prototype, 'animate', (original) => function(keyframes, options) {
+                if (!keyframes) return original.call(this, keyframes, options);
+                const rewriteVal = (val) => {
+                    if (typeof val === 'string' && val.includes('url(')) return rewriteCSS(val);
+                    return val;
+                };
+                try {
+                    if (Array.isArray(keyframes)) {
+                        keyframes = keyframes.map(frame => {
+                            const newFrame = { ...frame };
+                            for (const prop in newFrame) newFrame[prop] = rewriteVal(newFrame[prop]);
+                            return newFrame;
+                        });
+                    } else if (typeof keyframes === 'object') {
+                        const newKeyframes = { ...keyframes };
+                        for (const prop in newKeyframes) {
+                            const val = newKeyframes[prop];
+                            if (Array.isArray(val)) newKeyframes[prop] = val.map(rewriteVal);
+                            else newKeyframes[prop] = rewriteVal(val);
+                        }
+                        keyframes = newKeyframes;
+                    }
+                } catch(e) {}
+                return original.call(this, keyframes, options);
+            });
         }
 
         if (self.CSSStyleSheet) {
@@ -321,7 +388,6 @@ export function getStealthInterceptorScript(rootDomain) {
 
 
         // --- 6. PERFORMANCE MASKING ---
-        // Prevents scripts from seeing the proxy URLs in performance logs.
         if (self.Performance) {
             const wrapPerf = (fn) => function(...args) {
                 const entries = fn.apply(this, args);
@@ -329,7 +395,6 @@ export function getStealthInterceptorScript(rootDomain) {
                     entries.forEach(e => {
                         if (e.name && e.name.startsWith('http')) {
                             try {
-                                // PerformanceEntry is read-only, this is a best-effort attempt
                                 Object.defineProperty(e, 'name', { value: unrewriteURL(e.name) });
                             } catch(err) {}
                         }
@@ -343,21 +408,19 @@ export function getStealthInterceptorScript(rootDomain) {
         }
 
 
-        // --- 7. MISC (Cookies, History, Threading) ---
+        // --- 7. MISC ---
 
         if (self.Document) {
             const d = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
             if (d && d.set) Object.defineProperty(Document.prototype, 'cookie', {
                 get: d.get,
                 set(v) { 
-                    // Force domain to proxy root
                     return d.set.call(this, v.replace(/;\\s*Domain=[^;]+/zi, '; Domain=' + PROXY_ROOT_DOMAIN)); 
                 },
                 enumerable: d.enumerable, configurable: d.configurable
             });
         }
 
-        // Async Cookies
         if (self.cookieStore) {
             safeWrap(cookieStore, 'set', (o) => function(...args) {
                 if (args[0] && typeof args[0] === 'object' && args[0].domain) args[0].domain = PROXY_ROOT_DOMAIN;
@@ -365,7 +428,6 @@ export function getStealthInterceptorScript(rootDomain) {
             });
         }
 
-        // History State Walker
         const rewriteState = (state) => {
             if (!state || typeof state !== 'object') return state;
             try {
@@ -382,7 +444,6 @@ export function getStealthInterceptorScript(rootDomain) {
             safeWrap(history, 'replaceState', (o) => function(s, t, u) { return o.call(this, rewriteState(s), t, rewriteURL(u)); });
         }
 
-        // Location
         if (self.window && window.location) {
             const a = window.location.assign, r = window.location.replace;
             window.location.assign = function(u) { return a.call(window.location, rewriteURL(u)); };
@@ -393,7 +454,6 @@ export function getStealthInterceptorScript(rootDomain) {
             window.open = function(u, t, f) { return o.call(window, rewriteURL(u), t, f); };
         }
 
-        // PostMessage & BroadcastChannel
         if (self.BroadcastChannel) {
             safeWrap(BroadcastChannel.prototype, 'postMessage', (o) => function(m) {
                 if (typeof m === 'string' && (m.startsWith('http') || m.startsWith('/'))) m = rewriteURL(m);
@@ -421,8 +481,11 @@ export function getStealthInterceptorScript(rootDomain) {
         
         // Workers
         if (self.navigator && navigator.serviceWorker) {
+            // GAP #2: Service Worker Injector Redirect
             safeWrap(navigator.serviceWorker, 'register', (o) => function(u, o2) {
-                return o.call(this, rewriteURL(u), o2);
+                let scriptUrl = rewriteURL(u);
+                const injectorUrl = '/__divortio_sw_injector.js?target=' + encodeURIComponent(scriptUrl);
+                return o.call(this, injectorUrl, o2);
             });
         }
         if (typeof importScripts === 'function') {

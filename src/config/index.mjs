@@ -1,7 +1,7 @@
 /**
  * @file Configuration Loader
  * @description Validates and exports environment configuration.
- * @version 8.0.0
+ * @version 9.0.0 (Added Dynamic Mod Support)
  */
 
 /**
@@ -14,6 +14,7 @@
  * @property {object} features
  * @property {boolean} features.stealthMode
  * @property {boolean} features.serviceWorker
+ * @property {object} mods - Dynamic map of enabled mods (e.g. { "MOD_PROFANITY_FILTER": true })
  */
 
 /**
@@ -68,6 +69,16 @@ export function createConfig(env) {
         }
     }
 
+    // 3. Dynamic Mod Loading
+    // We scan the env for keys starting with "MOD_" to populate the config.
+    // This allows us to add new mods in wrangler.toml without changing this file constantly.
+    const mods = {};
+    for (const [key, val] of Object.entries(env)) {
+        if (key.startsWith('MOD_')) {
+            mods[key] = isTrue(val);
+        }
+    }
+
     return {
         rootDomain: env.ROOT_DOMAIN,
 
@@ -82,6 +93,9 @@ export function createConfig(env) {
             // Check for explicit configuration, default to TRUE if missing
             stealthMode: env.FEATURES_STEALTH_MODE !== undefined ? isTrue(env.FEATURES_STEALTH_MODE) : true,
             serviceWorker: env.FEATURES_SERVICE_WORKER !== undefined ? isTrue(env.FEATURES_SERVICE_WORKER) : true
-        }
+        },
+
+        // New: Dynamic Mod Configuration
+        mods: mods
     };
 }
