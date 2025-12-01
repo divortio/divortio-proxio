@@ -1,7 +1,7 @@
 /**
  * @file Location Header Rewriter
  * @description Rewrites the Location header for redirects.
- * @version 1.0.0
+ * @version 2.0.0 (Strictly Typed)
  */
 
 /**

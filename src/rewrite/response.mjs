@@ -1,7 +1,7 @@
 /**
  * @file Response Processing Logic
  * @description Orchestrates header sanitization and content type delegation.
- * @version 6.0.0 (Updated for Mod Config)
+ * @version 7.0.0 (Typed Config)
  */
 
 import {
@@ -13,19 +13,19 @@ import {
     sanitizeHeaders
 } from './rewriters/headers/index.mjs';
 
-import {handleJavascript, handleHtml, handleCss, handleJson, handleXml} from './handlers/index.mjs'
+import { handleJavascript, handleHtml, handleCss, handleJson, handleXml } from './handlers/index.mjs';
 
 /**
  * Main entry point for rewriting a response.
  * @param {Response} originResponse
  * @param {URL} targetURL
  * @param {string} rootDomain
- * @param {object} config
+ * @param {import('../config/env.mjs').EnvConfig} config
  * @param {string|null} setCookieHeader
  * @returns {Promise<Response>}
  */
 export async function rewriteResponse(originResponse, targetURL, rootDomain, config, setCookieHeader) {
-    // 1. Status Check: Passthrough for 304/204
+    // 1. Status Check: Passthrough for 304/204/Redirects (Empty Body)
     if (originResponse.status === 304 || originResponse.status === 204 || (originResponse.status >= 300 && originResponse.status < 400)) {
         const safeHeaders = new Headers(originResponse.headers);
         sanitizeHeaders(safeHeaders);
@@ -37,7 +37,7 @@ export async function rewriteResponse(originResponse, targetURL, rootDomain, con
         });
     }
 
-    // 2. Prepare Response Headers (Clone & Sanitize)
+    // 2. Prepare Response Headers
     const headers = new Headers(originResponse.headers);
     sanitizeHeaders(headers);
 
@@ -62,7 +62,7 @@ export async function rewriteResponse(originResponse, targetURL, rootDomain, con
         headers.set('Content-Security-Policy', rewriteCSP(headers.get('Content-Security-Policy')));
     }
 
-    // 4. Create Response Base (Used for handlers)
+    // 4. Create Response Base
     const responseBase = new Response(originResponse.body, {
         status: originResponse.status,
         statusText: originResponse.statusText,
@@ -73,7 +73,7 @@ export async function rewriteResponse(originResponse, targetURL, rootDomain, con
     const contentType = headers.get('Content-Type') || '';
 
     if (contentType.includes('text/html')) {
-        // UPDATED: Now passing 'config' to support Mods
+        // Pass Config to support Mods
         return handleHtml(responseBase, targetURL, rootDomain, config);
     }
 
@@ -96,7 +96,6 @@ export async function rewriteResponse(originResponse, targetURL, rootDomain, con
     // Special Case: PDF (Force Download)
     if (contentType.includes('application/pdf')) {
         headers.set('Content-Disposition', 'attachment');
-        // Return new response to apply the header change
         return new Response(originResponse.body, {
             status: originResponse.status,
             statusText: originResponse.statusText,

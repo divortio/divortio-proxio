@@ -1,24 +1,24 @@
 /**
  * @file WebSocket Proxy Handler
  * @description Manages WebSocket upgrades and long-lived tunnels.
- * @version 3.0.0 (Functional Export)
+ * @version 4.0.0 (Typed Config)
  */
 
 /**
  * Handles the incoming Upgrade request.
  * Creates the WebSocket pair, starts the session, and returns the 101 Switching Protocols response.
- * @param {ExecutionContext} ctx - The worker execution context (for waitUntil).
+ * @param {ExecutionContext} ctx - The worker execution context.
  * @param {URL} targetURL - The target URL to proxy to.
- * @returns {Response} The 101 Switching Protocols response containing the client socket.
+ * @param {import('../../config/env.mjs').EnvConfig} [config] - App config (reserved for future hooks).
+ * @returns {Response} The 101 Switching Protocols response.
  */
-export function handleWebSocket(ctx, targetURL) {
+export function handleWebSocket(ctx, targetURL, config) {
     // Create the client/server socket pair
     const { 0: client, 1: server } = new WebSocketPair();
 
     // Keep the worker alive while the session is active
     ctx.waitUntil(handleSession(server, targetURL));
 
-    // Return the handshake response to the client immediately
     return new Response(null, {
         status: 101,
         webSocket: client
@@ -27,24 +27,17 @@ export function handleWebSocket(ctx, targetURL) {
 
 /**
  * Establishes the tunnel between the server-side socket and the upstream origin.
- * (Internal Helper)
  */
 async function handleSession(server, targetURL) {
-    // 1. Accept the client connection
     server.accept();
 
-    // 2. Connect to the upstream target
     let targetWebSocket;
     try {
-        // Convert http(s) -> ws(s)
         const wsUrl = targetURL.href.replace(/^http/, 'ws');
-
-        // Perform the upstream handshake
         const originResponse = await fetch(wsUrl, {
             headers: { "Upgrade": "websocket" }
         });
 
-        // Validate upstream upgrade
         if (originResponse.status !== 101) {
             server.close(1002, "Upstream did not upgrade");
             return;
@@ -57,25 +50,14 @@ async function handleSession(server, targetURL) {
         return;
     }
 
-    // 3. Pipe Data (Client -> Target)
     server.addEventListener('message', event => {
-        try {
-            targetWebSocket.send(event.data);
-        } catch (e) {
-            server.close(1011, "Upstream send failed");
-        }
+        try { targetWebSocket.send(event.data); } catch (e) { server.close(1011, "Upstream send failed"); }
     });
 
-    // 4. Pipe Data (Target -> Client)
     targetWebSocket.addEventListener('message', event => {
-        try {
-            server.send(event.data);
-        } catch (e) {
-            server.close(1011, "Downstream send failed");
-        }
+        try { server.send(event.data); } catch (e) { server.close(1011, "Downstream send failed"); }
     });
 
-    // 5. Handle Closure (Cleanup)
     const close = (event) => {
         const { code, reason } = event || {};
         try { server.close(code || 1000, reason || "Normal Closure"); } catch(e){}

@@ -1,11 +1,11 @@
 /**
  * @file Header Sanitizer
  * @description Removes headers that cause security leaks or technical issues.
- * @version 1.0.0
+ * @version 2.0.0 (Split Request/Response Logic)
  */
 
 /**
- * Strips problematic headers from the response.
+ * Strips problematic headers from the RESPONSE.
  * @param {Headers} headers - The response headers object.
  */
 export function sanitizeHeaders(headers) {
@@ -34,4 +34,22 @@ export function sanitizeHeaders(headers) {
     headers.delete('X-DNS-Prefetch-Control');
     headers.delete('Clear-Site-Data');
     headers.delete('Accept-CH');
+}
+
+/**
+ * Strips identity-leaking headers from the REQUEST.
+ * @param {Headers} headers - The outgoing request headers object.
+ */
+export function sanitizeRequestHeaders(headers) {
+    const removeList = [
+        'x-forwarded-for', 'x-forwarded-proto', 'x-real-ip', 'via',
+        'cf-connecting-ip', 'cf-ipcountry', 'cf-ray', 'cf-visitor',
+        'cf-access-jwt-assertion', 'cf-access-authenticated-user-email', 'cf-access-token'
+    ];
+
+    for (const key of headers.keys()) {
+        if (removeList.includes(key) || key.startsWith('x-cf-')) {
+            headers.delete(key);
+        }
+    }
 }

@@ -1,25 +1,23 @@
 /**
  * @file Static Asset Handler
  * @description Serves internal generated scripts and public assets.
- * @version 3.1.0 (Added SW Injector)
+ * @version 4.0.0 (Typed Config & SW Injector)
  */
 
 import { getStealthInterceptorScript } from '../../templates/interceptor.mjs';
 import { getServiceWorkerCode } from '../../templates/service-worker.js';
 
-
 /**
  * Checks if the request is for a known asset (internal or public) and returns the response.
  * @param {Request} request
  * @param {object} env
- * @param {object} config
+ * @param {import('../../config/env.mjs').EnvConfig} config
  * @returns {Promise<Response|null>}
  */
 export async function handleAsset(request, env, config) {
     const url = new URL(request.url);
 
     // 1. Service Worker (Generated)
-    // This is OUR main proxy service worker
     if (url.pathname === '/__divortio_sw.js') {
         const content = getServiceWorkerCode(config.rootDomain);
         return new Response(content, {
@@ -31,29 +29,20 @@ export async function handleAsset(request, env, config) {
         });
     }
 
-    // 2. Service Worker Injector (NEW GAP #2 SOLVER)
+    // 2. Service Worker Injector (Gap #2 Fix)
     // Wraps 3rd-party Service Workers to ensure they load our interceptor.
-    // Usage: /__divortio_sw_injector.js?target=<encoded_target_sw_url>
     if (url.pathname === '/__divortio_sw_injector.js') {
         const target = url.searchParams.get('target');
         if (!target) return new Response("// Missing target", { status: 400 });
 
         const interceptorUrl = `/__divortio_interceptor.js`;
-
-        // We create a wrapper that loads our tools, then the user's SW
         const wrapper = `
-/** Divortio SW Injector **/
-try {
-  importScripts('${interceptorUrl}');
-} catch(e) { console.error("[Proxio] SW Injection Failed", e); }
-
-// Load the actual target Service Worker
+try { importScripts('${interceptorUrl}'); } catch(e) { console.error("[Proxio] SW Injection Failed", e); }
 importScripts('${target}');
 `;
         return new Response(wrapper, {
             headers: {
                 'Content-Type': 'application/javascript',
-                // Important: Allow this script to control the root scope, just like the original SW would
                 'Service-Worker-Allowed': '/'
             }
         });
@@ -86,5 +75,5 @@ importScripts('${target}');
         } catch (e) {}
     }
 
-    return null; // Not an asset request
+    return null;
 }

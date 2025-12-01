@@ -1,7 +1,7 @@
 /**
  * @file CORS Header Rewriter
  * @description Adjusts Access-Control-Allow-Origin to match the proxy domain.
- * @version 1.0.0
+ * @version 2.0.0 (Strictly Typed)
  */
 
 /**

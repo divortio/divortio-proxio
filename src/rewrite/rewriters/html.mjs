@@ -1,7 +1,7 @@
 /**
  * @file HTML Rewriter Configuration
- * @description Configures the streaming HTML parser with all necessary traps.
- * @version 7.0.0 (Mod System Integrated)
+ * @description Configures the streaming HTML parser with all necessary traps and mods.
+ * @version 8.0.0 (Typed Config & Mod Registry)
  */
 
 import {
@@ -16,10 +16,10 @@ import {
 import { MOD_REGISTRY } from '../../../mods/registry.mjs';
 
 /**
- * Configures and returns an HTMLRewriter instance to process the response body.
+ * Configures and returns an HTMLRewriter instance.
  * @param {URL} targetURL
  * @param {string} rootDomain
- * @param {object} config
+ * @param {import('../../../config/env.mjs').EnvConfig} config
  * @returns {HTMLRewriter}
  */
 export function getHtmlRewriter(targetURL, rootDomain, config) {
@@ -42,7 +42,7 @@ export function getHtmlRewriter(targetURL, rootDomain, config) {
     const importMap = new ImportMapRewriter(targetURL, rootDomain);
     const specRules = new SpeculationRulesRewriter(targetURL, rootDomain);
 
-    // 3. Bind Handlers to Selectors
+    // 3. Bind Core Handlers
     rewriter
         .on('a[href], link[href], area[href]', attr('href'))
         .on('a[ping]', attr('ping'))
@@ -79,20 +79,21 @@ export function getHtmlRewriter(targetURL, rootDomain, config) {
             element(el) { el.removeAttribute('integrity'); }
         });
 
-    // 4. Dynamic Mod Injection (Updated for Registry Schema 2.0)
+    // 4. Dynamic Mod Injection
+    // Iterate registry -> Check Config -> Check Domain -> Bind
     MOD_REGISTRY.forEach(modDef => {
         // A. Is it enabled in config?
         if (config.mods && config.mods[modDef.envKey]) {
 
             const args = modDef.defaultArgs || [];
-            const instance = new modDef.className(...args);
+            const instance = new modDef.Class(...args);
 
-            // B. Registry Override: Enforce domain scope defined in registry
+            // B. Registry Override
             if (modDef.domainPattern) {
                 instance.domainPattern = modDef.domainPattern;
             }
 
-            // C. Does it match the current domain?
+            // C. Domain Scope Check
             if (instance.shouldRun(targetURL)) {
                 rewriter.on(modDef.selector, instance);
             }

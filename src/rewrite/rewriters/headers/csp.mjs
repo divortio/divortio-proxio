@@ -1,7 +1,7 @@
 /**
  * @file Content-Security-Policy Rewriter
  * @description Modifies CSP headers to allow the proxy's scripts and resources.
- * @version 1.0.0
+ * @version 2.0.0 (Strictly Typed)
  */
 
 /**

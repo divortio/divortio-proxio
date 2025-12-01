@@ -1,42 +1,41 @@
 /**
- * @file CSS Response Handler
- * @description Handles the rewriting of CSS content responses.
- * @version 1.0.0
+ * @file CSS Content Rewriter
+ * @description Parses and rewrites URLs in CSS strings.
+ * @version 2.0.0 (Strictly Typed)
  */
-
-import { rewriteCSS } from '../rewriters/mimeType/index.mjs';
 
 /**
- * Rewrites URLs and imports within a CSS response body.
- *
- * It buffers the response text, applies the `rewriteCSS` parser logic,
- * updates the `Content-Length` header to reflect the modified size,
- * and returns a new Response object.
- *
- * @param {Response} response - The original response object (cloned or base).
- * @param {URL} targetURL - The target URL of the original request (used for resolving relative paths).
- * @param {string} rootDomain - The proxy's root domain (e.g., "proxy.com").
- * @returns {Promise<Response>} A promise resolving to the modified CSS response.
+ * Rewrites URLs in CSS strings, handling @import, url(), and image-set().
+ * @param {string} css - The raw CSS content.
+ * @param {URL} baseURL - The base URL for resolving relative paths.
+ * @param {string} rootDomain - The proxy root domain.
+ * @returns {string} The rewritten CSS content.
  */
-export async function handleCss(response, targetURL, rootDomain) {
-    // Buffer the entire CSS content to allow safe regex replacement across line breaks.
-    const css = await response.text();
+export function rewriteCSS(css, baseURL, rootDomain) {
+    const proxify = (url) => {
+        if (!url || url.startsWith('data:') || url.startsWith('chrome-extension:')) return url;
+        try {
+            const absURL = new URL(url, baseURL);
+            if (absURL.hostname.endsWith(`.${rootDomain}`)) return url;
+            return `https://${absURL.hostname}.${rootDomain}${absURL.pathname}${absURL.search}`;
+        } catch { return url; }
+    };
 
-    // Perform the rewrite logic (url(), @import, image-set, etc.)
-    const rewrittenCss = rewriteCSS(css, targetURL, rootDomain);
+    // 1. Strip Source Maps
+    css = css.replace(/\/\*# sourceMappingURL=.* \*\/$/gm, '');
 
-    // Calculate the new byte length (UTF-8).
-    // This is critical because rewriting changes the file size, and an incorrect
-    // Content-Length will cause the browser to truncate the file or hang.
-    const newSize = new TextEncoder().encode(rewrittenCss).length;
+    // 2. Rewrite @import "..."
+    css = css.replace(/@import\s*(?:url\(\s*)?['"]?([^'"\)]+)['"]?(?:\s*\))?/gi, (match, url) => {
+        return match.replace(url, proxify(url));
+    });
 
-    // Create a new headers object to avoid mutating the input response's headers unexpectedly.
-    const headers = new Headers(response.headers);
-    headers.set('Content-Length', newSize.toString());
+    // 3. Rewrite image-set(...)
+    css = css.replace(/image-set\(([^)]+)\)/gi, (match, content) => {
+        return match.replace(/url\(\s*(['"]?)(.*?)\1\s*\)/gi, (m, q, u) => `url(${q}${proxify(u)}${q})`);
+    });
 
-    return new Response(rewrittenCss, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: headers
+    // 4. Rewrite standard url(...)
+    return css.replace(/url\(\s*(['"]?)(.*?)\1\s*\)/gi, (match, quote, url) => {
+        return `url(${quote}${proxify(url)}${quote})`;
     });
 }

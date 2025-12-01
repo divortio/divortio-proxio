@@ -1,7 +1,7 @@
 /**
  * @file Link Header Rewriter
  * @description Rewrites URLs inside the HTTP Link header.
- * @version 1.0.0
+ * @version 2.0.0 (Strictly Typed)
  */
 
 /**
@@ -33,20 +33,26 @@ export function rewriteLinkHeader(headerValue, targetURL, rootDomain) {
         // 2. Fix imagesrcset
         if (newPart.includes('imagesrcset=')) {
             newPart = newPart.replace(/imagesrcset="([^"]+)"/g, (m, srcset) => {
-                const newSrcset = srcset.split(',').map(p => {
-                    const [url, desc] = p.trim().split(/\s+/);
-                    if (!url) return p;
-                    try {
-                        const absURL = new URL(url, targetURL);
-                        if (absURL.hostname.endsWith('.' + rootDomain)) return p;
-                        const proxyUrl = `https://${absURL.hostname}.${rootDomain}${absURL.pathname}${absURL.search}`;
-                        return desc ? `${proxyUrl} ${desc}` : proxyUrl;
-                    } catch { return p; }
-                }).join(', ');
-                return `imagesrcset="${newSrcset}"`;
+                return `imagesrcset="${rewriteLinkSrcset(srcset, targetURL, rootDomain)}"`;
             });
         }
 
         return newPart;
     }).filter(Boolean).join(',');
+}
+
+/**
+ * Helper to rewrite srcset values within Link headers.
+ */
+function rewriteLinkSrcset(srcset, targetURL, rootDomain) {
+    return srcset.split(',').map(p => {
+        const [url, desc] = p.trim().split(/\s+/);
+        if (!url) return p;
+        try {
+            const absURL = new URL(url, targetURL);
+            if (absURL.hostname.endsWith('.' + rootDomain)) return p;
+            const proxyUrl = `https://${absURL.hostname}.${rootDomain}${absURL.pathname}${absURL.search}`;
+            return desc ? `${proxyUrl} ${desc}` : proxyUrl;
+        } catch { return p; }
+    }).join(', ');
 }

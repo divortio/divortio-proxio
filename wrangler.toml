@@ -55,6 +55,15 @@ head_sampling_rate = 1.0
 # --- Core Proxy Configuration ---
 ROOT_DOMAIN = "proxy.example.com"
 
+# Cookies restricted to the Landing Page / Dashboard
+# Ex: 'admin_session', 'dashboard_prefs'
+COOKIE_ROOT_PASSTHROUGH = '["admin_*", "dash_pref"]'
+
+# Cookies allowed to "float" while browsing
+# These are your Auth tokens. They reach the Worker but are STRIPPED before Origin.
+# Ex: 'Divortio-Auth', 'cf_clearance'
+COOKIE_PROXY_PASSTHROUGH = '["Divortio-*", "cf_*", "My-Auth-Token"]'
+
 # --- Caching Configuration ---
 # Controls the Edge Cache behavior.
 CACHE_ENABLED = true
